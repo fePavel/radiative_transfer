@@ -1,24 +1,16 @@
-using DynamicalSystems, CairoMakie
-using LinearAlgebra: norm, dot
+using Agents
+using Random, LinearAlgebra, Statistics
+# using CairoMakie
+using GLMakie
 
-# Dynamical system and initial conditions
-ds = Systems.thomas_cyclical(b = 0.2)
-u0s = [[3, 1, 1.], [1, 3, 1.], [1, 1, 3.]] # must be a vector of states!
-
-# Observables we get timeseries of:
-function distance_from_symmetry(u)
-    v = SVector{3}(1/√3, 1/√3, 1/√3)
-    t = dot(v, u)
-    return norm(u - t*v)
+@agent struct test_agent(ContinuousAgent{2,Float64})
+    # speed::Float64
+    clump_id::Int
 end
-fs = [3, distance_from_symmetry]
 
-fig, dsobs = interactive_trajectory_timeseries(ds, fs, u0s;
-    idxs = [1, 2], Δt = 0.05, tail = 500,
-    lims = ((-2, 4), (-2, 4)),
-    timeseries_ylims = [(-2, 4), (0, 5)],
-    add_controls = false,
-    figure = (size = (800, 400),)
-)
+model = StandardABM(test_agent, ContinuousSpace((1, 1)))
+pos = (1,1)
+vel = (1,1)
+add_agent!((0.3,1), model, vel, 1)
 
-fig
+model[1]

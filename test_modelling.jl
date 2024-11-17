@@ -91,13 +91,30 @@ end
 
 plot_velocity_distribution(500)
 
-# abmvideo(
-#     "gas.mp4", model;
-#     framerate = 20, frames = 200,
-#     title="gas", agent_size=2
-# )
-
 model=initialize_model()
+abmvideo(
+    "gas.mp4", model;
+    framerate = 20, frames = 60,
+    title="gas", agent_size=6
+)
 
-fig, ax, abmobs = abmplot(model; add_controls=true, agent_size=10)
-fig
+
+
+#### interactive mode ####
+# model=initialize_model()
+# fig, ax, abmobs = abmplot(model; add_controls=true, agent_size=10)
+# fig
+# 
+
+
+
+#### new feature ####
+# abmobs
+# plot_layout = fig[:, end+1] = GridLayout()
+# count_layout = plot_layout[1, 1] = GridLayout()
+# Temperature = @lift(Point2f.($(abmobs.adf).time, $(abmobs.adf).count_black))
+
+
+
+extent = (1, 1, 1)
+sp = ContinuousSpace(extent; periodic=true)

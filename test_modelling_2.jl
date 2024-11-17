@@ -1,32 +1,79 @@
-using HardSphereDynamics, StaticArrays
+using Agents
+using Random, LinearAlgebra, Statistics
+# using CairoMakie
+using GLMakie
 
-# create box:
+number_of_dimensions = 2
 
-table = HardSphereDynamics.RectangularBox(SA[-0.5, -0.5, -1.0],
-                                          SA[+0.5, +0.5, +3.0])
+@agent struct H_atom_3d(ContinuousAgent{3, Float64}) 
+    speed::Float64
+    clump_id::Int
+end
 
-# create fluid:
-d = 3     # spatial dimension
-n = 20   # number of spheres
-r = 0.1  # radius
+@agent struct H_atom_2d(ContinuousAgent{2,Float64})
+    speed::Float64
+    clump_id::Int
+end
 
-fluid = HardSphereFluid{d,Float64}(table, n, r)
-initial_condition!(fluid, lower=table.lower, upper=-table.lower)
 
-# set up simulation:
-collision_type = ElasticCollision()
-flow_type = ExternalFieldFlow(SA[0.0, 0.0, -10.0])
-event_handler = AllToAll(fluid, flow_type)
+function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=25, seed = 42)
+    space = ContinuousSpace(extent; periodic=true)  
+    rng = Random.MersenneTwister(seed)
+    if number_of_dimensions == 2 
+        H_atom = H_atom_2d
+    elseif number_of_dimensions == 3 
+        H_atom = H_atom_3d
+    end
 
-simulation =  HardSphereSimulation(
-    fluid, event_handler, flow_type, collision_type);
+    model = StandardABM(H_atom, space; rng, agent_step!, scheduler = Schedulers.Randomly())
+    n=round(Int, number_of_clumps^(1/number_of_dimensions))
+    cell_size = extent ./ (2n+1)
+    for k in 1:2n+1
+        for j in 1:2n+1
+            id = n * (k - 1) + j
+            if k % 2 == 0 && j % 2 == 0
+                for i in 1:number_of_atoms
+                vel = randn(rng, Float64, (number_of_dimensions, 1)) .* speed
+                pos = (rand(rng, Float64, (number_of_dimensions, 1)) .+ (k-1, j-1)) .* cell_size
+                add_agent!(
+                    pos,
+                    model,
+                    vel,
+                    speed,
+                    id                 
+                )
+                end
+            end
+        end
+    end
+    return model
+end
 
-# time evolution:
-δt = 0.01
-final_time = 100
-states, times = evolve!(simulation, δt, final_time);
 
-# visualization:
-using Makie
+function agent_step!(H_atom, model)
+    H_atom.vel = H_atom.vel
+    move_agent!(H_atom, model, H_atom.speed)
+    
+end
 
-HardSphereDynamics.visualize_3d(states, sleep_step=0.005, lower=table.lower, upper=-table.lower)
+
+
+### interactive mode ####
+model = initialize_model()
+fig, ax, abmobs = abmplot(model; add_controls=true, agent_size=2)
+fig
+
+# n = 4
+# m = zeros(2n + 1, 2n + 1)
+# for i in 1:2n+1
+#     for j in 1:2n+1
+#         if i % 2 == 0 && j % 2 == 0
+#             m[i, j] = 1
+#         end
+#     end
+# end
+
+# m
+
+# abmspace(model).
+
