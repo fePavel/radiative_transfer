@@ -20,7 +20,7 @@ end
     child_agents::Array{Union{H_atom_2d, H_atom_3d},1}
 end
 
-function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=4, seed = 42)
+function initialize_model(; number_of_atoms=1000, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42)
     space = ContinuousSpace(extent; periodic=true)  
     rng = Random.MersenneTwister(seed)
     if number_of_dimensions == 2 
@@ -91,6 +91,7 @@ function agent_step!(test_agent::Union{H_atom_2d,H_atom_3d}, model)
     if next_dist[2] > 0.5 * cell_size && test_agent.vel[2] < 0
         walk!(test_agent, SVector((0, cell_size)), model)
     end
+    test_agent.vel *=0.999
 end
 
 function agent_step!(clump_agent::Clump, model)
@@ -112,58 +113,8 @@ function agent_step!(clump_agent::Clump, model)
             walk!(child_agent, SVector((0, -cell_size)), model)
         end
     end
+    clump_agent.vel *= 0.999
 end
-
-
-# function agent_step!(H_atom, model; clumps_bounds=true)
-#     H_atom.clump_center_x += H_atom.clump_vel_x
-#     # println(model.space_size)
-#     # println(model.properties[:n])
-#     n = model.n
-#     cell_size = spacesize(model)[1] / (2n+1)
-#     prev_pos_x, prev_pos_y = H_atom.pos 
-#     move_agent!(H_atom, model, H_atom.speed)
-#     next_pos_x, next_pos_y = H_atom.pos 
-
-#     clump_center_x = H_atom.clump_center_x
-#     clump_center_y = H_atom.clump_center_y
-
-#     if clumps_bounds
-
-#         # preiodic bounds for clumps
-#         if next_pos_x > clump_center_x + 0.5 * cell_size 
-#             # && next_pos_x - cell_size > 0 
-#             walk!(H_atom, SVector((-cell_size, 0)), model)
-#         end
-#         if next_pos_x < clump_center_x - 0.5 * cell_size 
-#             # && next_pos_x + cell_size < spacesize(model)[1]
-#             walk!(H_atom, SVector((cell_size, 0)), model)
-#         end
-#         if next_pos_y > clump_center_y + 0.5 * cell_size 
-#             # && next_pos_y - cell_size > 0
-#             walk!(H_atom, SVector((0, -cell_size)), model)
-#         end
-#         if next_pos_y < clump_center_y - 0.5 * cell_size 
-#             # && next_pos_y + cell_size < spacesize(model)[2]
-#             walk!(H_atom, SVector((0, cell_size)), model)
-#         end
-    
-#         # move clump_center when particle intersects an edge
-#         if H_atom.vel[1] > 0 && next_pos_x - prev_pos_x < 0
-#             H_atom.clump_center_x -= spacesize(model)[1]
-#         end
-#         if H_atom.vel[1] < 0 && next_pos_x - prev_pos_x > 0
-#             H_atom.clump_center_x += spacesize(model)[1]
-#         end
-#         if H_atom.vel[2] > 0 && next_pos_y - prev_pos_y < 0
-#             H_atom.clump_center_y -= spacesize(model)[2]
-#         end
-#         if H_atom.vel[2] < 0 && next_pos_y - prev_pos_y > 0
-#             H_atom.clump_center_y += spacesize(model)[2]
-#         end
-#     end
-# end
-
 
 
 
@@ -177,8 +128,37 @@ end
 
 ### interactive mode ####
 model = initialize_model()
-fig, ax, abmobs = abmplot(model; add_controls=true, agent_size=4, agent_color=agent_color)
+
+plotkwargs = (;
+    agent_color=agent_color, agent_size=2, 
+)
+params = Dict(
+    :speed => 0.02:0.001:0.04,
+)
+
+fig, ax, abmobs = abmplot(model; add_controls=true, params, plotkwargs..., adata)
 fig
+
+
+
+### collecting data ###
+kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
+kin_temp(H_atom::Clump) = 0
+model = initialize_model()
+adata = [(kin_temp, mean)]
+# adf, mdf = run!(model, 1000; adata)
+fig, abmobs = abmexploration(model; add_controls=true, params, plotkwargs..., adata)
+fig
+
+
+# ### video ###
+# model = initialize_model()
+# abmvideo(
+#     "gas_1.mp4", model;
+#     framerate=20, frames=300,
+#     title="gas", agent_size=3s
+# )
+
 
 # model[3].child_agents
 # nagents(model)
