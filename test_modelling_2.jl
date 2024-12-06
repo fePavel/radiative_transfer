@@ -20,7 +20,7 @@ end
     child_agents::Array{Union{H_atom_2d, H_atom_3d},1}
 end
 
-function initialize_model(; number_of_atoms=1000, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42)
+function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42)
     space = ContinuousSpace(extent; periodic=true)  
     rng = Random.MersenneTwister(seed)
     if number_of_dimensions == 2 
@@ -32,7 +32,7 @@ function initialize_model(; number_of_atoms=1000, speed = 0.03, extent = Tuple(o
     properties = Dict(:n => round(Int, number_of_clumps^(1 / number_of_dimensions)),
                       :number_of_clumps => number_of_clumps)
 
-    model = StandardABM(Union{H_atom, Clump}, space; rng, agent_step!, scheduler=Schedulers.ByID(), properties = properties)
+    model = StandardABM(Union{H_atom, Clump}, space; rng, agent_step!, model_step!, scheduler=Schedulers.ByID(), properties = properties)
     n=round(Int, number_of_clumps^(1/number_of_dimensions))
     cell_size = extent ./ (2n+1)
     base_clump = Clump(1, (0.5, 0.5), (0.0, 0.0), cell_size[1], Int[])
@@ -40,7 +40,8 @@ function initialize_model(; number_of_atoms=1000, speed = 0.03, extent = Tuple(o
         for j in 1:2n+1
             if i % 2 ==0 && j % 2 == 0 
                 clump_pos = [(i - 0.5), (j - 0.5)] .* cell_size
-                vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
+                # vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
+                vel = [0, 0]
                 replicate!(base_clump, model; pos=clump_pos, vel=vel, child_agents=Int[])
             end
         end
@@ -91,10 +92,13 @@ function agent_step!(test_agent::Union{H_atom_2d,H_atom_3d}, model)
     if next_dist[2] > 0.5 * cell_size && test_agent.vel[2] < 0
         walk!(test_agent, SVector((0, cell_size)), model)
     end
-    test_agent.vel *=0.999
+    # test_agent.vel *=0.999
 end
 
 function agent_step!(clump_agent::Clump, model)
+    clump_agent.vel = SVector(mean([atom.vel[1] for atom in clump_agent.child_agents]), mean([atom.vel[2] for atom in clump_agent.child_agents]))
+    
+
     cell_size = clump_agent.cell_size
     move_agent!(clump_agent, model, 1)
 
@@ -113,10 +117,29 @@ function agent_step!(clump_agent::Clump, model)
             walk!(child_agent, SVector((0, -cell_size)), model)
         end
     end
-    clump_agent.vel *= 0.999
+    # clump_agent.vel *= 0.999
 end
 
+function model_step!(model)
+    if abmtime(model) % 2 == 0
+        number_of_atoms_per_clump = length(model[1].child_agents)
+        i, j = rand(2:number_of_atoms_per_clump, 2)
+        new_vel_1, new_vel_2 = collision(model[i].vel, model[j].vel)
+        model[i].vel = new_vel_1
+        model[j].vel = new_vel_2
+    end
+end
 
+function collision(velocity_1, velocity_2)
+    # simple collision which agree with energy and momentum conservation laws.
+    center = 0.5 * (velocity_1 + velocity_2)
+    radius = 0.5 * norm(velocity_1 - velocity_2)
+    α = 2π * rand()
+    direction = [cos(α); sin(α)]
+    new_vel_1 = center + radius * direction
+    new_vel_2 = center - radius * direction
+    return new_vel_1, new_vel_2
+end
 
 function agent_color(agent::Union{H_atom_2d, H_atom_3d})
     return :blue
@@ -126,22 +149,28 @@ function agent_color(agent::Clump)
 end
 
 
-### interactive mode ####
-model = initialize_model()
+# ### interactive mode ####
+# model = initialize_model()
+# 
+# plotkwargs = (;
+#     agent_color=agent_color, agent_size=2, 
+# )
+# params = Dict(
+#     :speed => 0.02:0.001:0.04,
+# )
+# 
+# fig, ax, abmobs = abmplot(model; add_controls=true, params, plotkwargs..., adata)
+# fig
 
+
+
+### collecting data ###
 plotkwargs = (;
     agent_color=agent_color, agent_size=2, 
 )
 params = Dict(
     :speed => 0.02:0.001:0.04,
 )
-
-fig, ax, abmobs = abmplot(model; add_controls=true, params, plotkwargs..., adata)
-fig
-
-
-
-### collecting data ###
 kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
 kin_temp(H_atom::Clump) = 0
 model = initialize_model()
@@ -150,6 +179,23 @@ adata = [(kin_temp, mean)]
 fig, abmobs = abmexploration(model; add_controls=true, params, plotkwargs..., adata)
 fig
 
+# step!(model)
+
+# model[1]
+
+# nagents(model)
+
+# step!(model)
+# length(model[1].child_agents)
+mean([model[j].vel[1] for j in 2:100])
+mean([model[j].vel[2] for j in 2:100])
+
+model[1].vel[1]
+model[1].vel[2]
+
+# abmtime(model)
+# step!(model)
+# println(model[2])
 
 # ### video ###
 # model = initialize_model()
@@ -181,3 +227,10 @@ fig
 
 # abmspace(model).
 
+# #### check collision ####
+# v1, v2 = [0; 1], [1; 0]
+# v11, v21 = collision(v1, v2)
+# v1 + v2
+# v11 + v21
+# norm(v1)^2 + norm(v2)^2
+# norm(v11)^2 + norm(v21)^2
