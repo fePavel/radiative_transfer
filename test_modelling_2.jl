@@ -40,22 +40,33 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         for j in 1:2n+1
             if i % 2 ==0 && j % 2 == 0 
                 clump_pos = [(i - 0.5), (j - 0.5)] .* cell_size
-                # vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
-                vel = [0, 0]
+                vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
+                # vel = [0, 0]
                 replicate!(base_clump, model; pos=clump_pos, vel=vel, child_agents=Int[])
             end
         end
     end
 
+
+    ### adding atoms ###
     base_H_atom = H_atom(number_of_clumps+1, (0.5, 0.5), (0.0, 0.0), speed, 1)
     for i in 1:number_of_clumps
         for j in 1:number_of_atoms
             pos = (rand(rng, Float64, (number_of_dimensions, 1)) .- (0.5, 0.5)) .* cell_size .+ model[i].pos 
-            vel = randn(rng, Float64, (number_of_dimensions, 1)) .* speed .+ model[i].vel
+            vel = randn(rng, Float64, (number_of_dimensions, 1)) .* speed 
             H_atom = replicate!(base_H_atom, model; pos=pos, vel=vel, clump_id=i)
             push!(model[i].child_agents, H_atom)
         end
     end
+
+    ### correct velocities for desired average ###
+    for i in 1:number_of_clumps
+        mean_vel = mean([atom.vel for atom in model[i].child_agents])
+        for atom in model[i].child_agents
+            atom.vel -= mean_vel + model[i].vel
+        end
+    end
+
     return model
 end
 
@@ -164,35 +175,70 @@ end
 
 
 
-### collecting data ###
+# ### explore data ###
+# plotkwargs = (;
+#     agent_color=agent_color, agent_size=2, 
+# )
+# params = Dict(
+#     :speed => 0.02:0.001:0.04,
+# )
+# kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
+# kin_temp(H_atom::Clump) = 0
+# model = initialize_model()
+# adata = [(kin_temp, mean)]
+
+# std_velocities_norms(model) = std([norm(model[i].vel) for i in number_of_clumps+1:nagents(model)])
+# mdata = [std_velocities_norms]
+# # adf, mdf = run!(model, 1000; adata)
+# fig, abmobs = abmexploration(model; add_controls=true, params, plotkwargs..., adata, mdata)
+# fig
+
+
+### advanced data exploration ###
 plotkwargs = (;
-    agent_color=agent_color, agent_size=2, 
-)
-params = Dict(
-    :speed => 0.02:0.001:0.04,
+    agent_color=agent_color, agent_size=2,
 )
 kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
 kin_temp(H_atom::Clump) = 0
 model = initialize_model()
 adata = [(kin_temp, mean)]
-# adf, mdf = run!(model, 1000; adata)
-fig, abmobs = abmexploration(model; add_controls=true, params, plotkwargs..., adata)
+mdata = [velocities_norms]
+
+fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata)
+plot_layout = fig[:,end+1] = GridLayout()
+count_layout = plot_layout[1, 1] = GridLayout()
+ax_counts = Axis(count_layout[1, 1]; backgroundcolor=:lightgrey, ylabel="Number of daisies by color")
+temperature = @lift(Point2f.($(abmobs.adf).time, $(abmobs.adf).mean_kin_temp))
+scatterlines!(ax_counts, temperature; color=:black, label="black")
+ax_hist = Axis(plot_layout[2, 1]; ylabel="super")
+number_of_clumps=1
+velocities_norms(model) = mean([norm(model[i].vel) for i in number_of_clumps+1:nagents(model)])
+hist!(ax_hist, @lift($(abmobs.mdf).velocities_norms); bins=50, color=:red)
 fig
-
+# abmobs.mdf
 # step!(model)
 
-# model[1]
 
-# nagents(model)
+# # nagents(model)
 
-# step!(model)
-# length(model[1].child_agents)
-mean([model[j].vel[1] for j in 2:100])
-mean([model[j].vel[2] for j in 2:100])
+# # step!(model)
+# # length(model[1].child_agents)
+# mean([model[j].vel[1] for j in 2:10001])
+# mean([model[j].vel[2] for j in 2:10001])
+# t = 2:10001
+# z = [sum([model[j].vel[1] for j in 2:i]) for i in t]
+# z2 = [mean([model[j].vel[1] for j in 2:i]) for i in t]
 
-model[1].vel[1]
-model[1].vel[2]
+# x = [model[j].vel[1] for j in 2:10001]
+# y = [model[j].vel[2] for j in 2:10001]
+# using PyPlot
+# pygui(true)
+# PyPlot.scatter(x,y, color="red")
+# PyPlot.plot(t,z./10000)
+# # model[1].vel[1]
+# # model[1].vel[2]
 
+# z
 # abmtime(model)
 # step!(model)
 # println(model[2])
