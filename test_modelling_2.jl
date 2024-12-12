@@ -40,8 +40,8 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         for j in 1:2n+1
             if i % 2 ==0 && j % 2 == 0 
                 clump_pos = [(i - 0.5), (j - 0.5)] .* cell_size
-                vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
-                # vel = [0, 0]
+                # vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
+                vel = [0, 0]
                 replicate!(base_clump, model; pos=clump_pos, vel=vel, child_agents=Int[])
             end
         end
@@ -131,9 +131,16 @@ function agent_step!(clump_agent::Clump, model)
     # clump_agent.vel *= 0.999
 end
 
-function model_step!(model)
-    if abmtime(model) % 2 == 0
-        number_of_atoms_per_clump = length(model[1].child_agents)
+function model_step!(model; number_of_collisions=10)
+    # if abmtime(model) % 2 == 0
+    #     number_of_atoms_per_clump = length(model[1].child_agents)
+    #     i, j = rand(2:number_of_atoms_per_clump, 2)
+    #     new_vel_1, new_vel_2 = collision(model[i].vel, model[j].vel)
+    #     model[i].vel = new_vel_1
+    #     model[j].vel = new_vel_2
+    # end
+    number_of_atoms_per_clump = length(model[1].child_agents)
+    for _ in 1:number_of_collisions
         i, j = rand(2:number_of_atoms_per_clump, 2)
         new_vel_1, new_vel_2 = collision(model[i].vel, model[j].vel)
         model[i].vel = new_vel_1
@@ -198,26 +205,36 @@ end
 plotkwargs = (;
     agent_color=agent_color, agent_size=2,
 )
+params = Dict(
+    :speed => 0.02:0.001:0.04,
+)
 kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
 kin_temp(H_atom::Clump) = 0
-model = initialize_model()
+model = initialize_model(number_of_atoms=10000)
 adata = [(kin_temp, mean)]
+number_of_clumps=1
+velocities_norms(model) = mean([model[i].vel[1] for i in number_of_clumps+1:nagents(model)])
 mdata = [velocities_norms]
-
-fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata)
+fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata, figure = (; size = (1200,600)))
 plot_layout = fig[:,end+1] = GridLayout()
 count_layout = plot_layout[1, 1] = GridLayout()
+
 ax_counts = Axis(count_layout[1, 1]; backgroundcolor=:lightgrey, ylabel="Number of daisies by color")
 temperature = @lift(Point2f.($(abmobs.adf).time, $(abmobs.adf).mean_kin_temp))
 scatterlines!(ax_counts, temperature; color=:black, label="black")
 ax_hist = Axis(plot_layout[2, 1]; ylabel="super")
-number_of_clumps=1
-velocities_norms(model) = mean([norm(model[i].vel) for i in number_of_clumps+1:nagents(model)])
-hist!(ax_hist, @lift($(abmobs.mdf).velocities_norms); bins=50, color=:red)
-fig
-# abmobs.mdf
-# step!(model)
+hist!(ax_hist, @lift($(abmobs.mdf)[:, 2]); bins=50, normalization=:pdf, color=(:red, 0.5))
+# xlims!(ax_hist, (0.036, 0.044))
+# ylims!(ax_hist, (0.0, 1.e6))
 
+# 0.035 0.045))
+fig
+abmobs.mdf
+
+# abmobs.mdf[][:,2]
+# 0.036 0.044
+
+# 0.035 0.045
 
 # # nagents(model)
 
