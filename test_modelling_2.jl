@@ -203,17 +203,17 @@ end
 
 ### advanced data exploration ###
 plotkwargs = (;
-    agent_color=agent_color, agent_size=2,
+    agent_color=agent_color, agent_size=1,
 )
 params = Dict(
     :speed => 0.02:0.001:0.04,
 )
 kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
 kin_temp(H_atom::Clump) = 0
-model = initialize_model(number_of_atoms=10000)
+model = initialize_model(number_of_atoms=1000)
 adata = [(kin_temp, mean)]
 number_of_clumps=1
-velocities_norms(model) = mean([model[i].vel[1] for i in number_of_clumps+1:nagents(model)])
+velocities_norms(model) = [model[i].vel[1] for i in number_of_clumps+1:nagents(model)]
 mdata = [velocities_norms]
 fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata, figure = (; size = (1200,600)))
 plot_layout = fig[:,end+1] = GridLayout()
@@ -223,16 +223,22 @@ ax_counts = Axis(count_layout[1, 1]; backgroundcolor=:lightgrey, ylabel="Number 
 temperature = @lift(Point2f.($(abmobs.adf).time, $(abmobs.adf).mean_kin_temp))
 scatterlines!(ax_counts, temperature; color=:black, label="black")
 ax_hist = Axis(plot_layout[2, 1]; ylabel="super")
-hist!(ax_hist, @lift($(abmobs.mdf)[:, 2]); bins=50, normalization=:pdf, color=(:red, 0.5))
-# xlims!(ax_hist, (0.036, 0.044))
+hist!(ax_hist, @lift($(abmobs.mdf)[end, 2]); bins=50, normalization=:pdf, color=(:red, 0.5))
+# xmin = mean(abmobs.mdf[][1, 2]) - 5*mean(abmobs.mdf[][1, 2])
+# xmax = mean(abmobs.mdf[][1, 2]) + 5 * mean(abmobs.mdf[][1, 2])
+# xlims!(ax_hist, (xmin, xmax))
 # ylims!(ax_hist, (0.0, 1.e6))
 
-# 0.035 0.045))
+# fig
+for i in 1:10; step!(abmobs, 1); end
 fig
-abmobs.mdf
 
+# c = abmobs.mdf[][1,2]
+
+# mean(c)
+# std(c)
 # abmobs.mdf[][:,2]
-# 0.036 0.044
+
 
 # 0.035 0.045
 
