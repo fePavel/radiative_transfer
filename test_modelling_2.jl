@@ -20,19 +20,30 @@ end
     child_agents::Array{Union{H_atom_2d, H_atom_3d},1}
 end
 
-function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42)
+@agent struct Photon_2d(ContinuousAgent{2,Float64})
+    polarization::Float64 # just for fun with no physical sence
+end
+@agent struct Photon_3d(ContinuousAgent{3,Float64})
+    polarization::Float64 # just for fun with no physical sence
+end
+
+
+function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42, number_of_photons=100)
     space = ContinuousSpace(extent; periodic=true)  
     rng = Random.MersenneTwister(seed)
     if number_of_dimensions == 2 
         H_atom = H_atom_2d
+        Photon = Photon_2d
     elseif number_of_dimensions == 3 
         H_atom = H_atom_3d
+        Photon = Photon_3d
     end
 
     properties = Dict(:n => round(Int, number_of_clumps^(1 / number_of_dimensions)),
-                      :number_of_clumps => number_of_clumps)
+                      :number_of_clumps => number_of_clumps,
+                      :full_number_of_atoms => number_of_atoms * number_of_clumps)
 
-    model = StandardABM(Union{H_atom, Clump}, space; rng, agent_step!, model_step!, scheduler=Schedulers.ByID(), properties = properties)
+    model = StandardABM(Union{H_atom, Clump, Photon}, space; rng, agent_step!, model_step!, scheduler=Schedulers.ByID(), properties = properties)
     n=round(Int, number_of_clumps^(1/number_of_dimensions))
     cell_size = extent ./ (2n+1)
     base_clump = Clump(1, (0.5, 0.5), (0.0, 0.0), cell_size[1], Int[])
@@ -53,7 +64,8 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
     for i in 1:number_of_clumps
         for j in 1:number_of_atoms
             pos = (rand(rng, Float64, (number_of_dimensions, 1)) .- (0.5, 0.5)) .* cell_size .+ model[i].pos 
-            vel = randn(rng, Float64, (number_of_dimensions, 1)) .* speed 
+            # vel = randn(rng, Float64, (number_of_dimensions, 1)) .* speed 
+            vel = randexp(rng, Float64, (number_of_dimensions, 1)) .* speed
             H_atom = replicate!(base_H_atom, model; pos=pos, vel=vel, clump_id=i)
             push!(model[i].child_agents, H_atom)
         end
@@ -65,6 +77,17 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         for atom in model[i].child_agents
             atom.vel -= mean_vel + model[i].vel
         end
+    end
+
+    ### adding photons ###
+    first_photon_index = number_of_clumps * (1 + number_of_atoms) + 1
+    base_photon = Photon(first_photon_index, (0.5, 0.5), (0.1, 0.1), 1)
+    for i in 1:number_of_photons
+        pos = (rand(rng, Float64, (number_of_dimensions, 1)) .- (0.5, 0.5)) .* cell_size .+ model[i].pos
+        α = 2π * rand()
+        direction = [cos(α); sin(α)]
+        vel = 5speed .* direction 
+        replicate!(base_photon, model; pos=pos, vel=vel)
     end
 
     return model
@@ -131,6 +154,10 @@ function agent_step!(clump_agent::Clump, model)
     # clump_agent.vel *= 0.999
 end
 
+function agent_step!(photon_agent::Photon_2d, model)
+    move_agent!(photon_agent, model, 1)
+end
+
 function model_step!(model; number_of_collisions=10)
     # if abmtime(model) % 2 == 0
     #     number_of_atoms_per_clump = length(model[1].child_agents)
@@ -164,6 +191,9 @@ function agent_color(agent::Union{H_atom_2d, H_atom_3d})
 end
 function agent_color(agent::Clump)
     return :red
+end
+function agent_color(agent::Photon_2d)
+    return :green
 end
 
 
@@ -208,13 +238,16 @@ plotkwargs = (;
 params = Dict(
     :speed => 0.02:0.001:0.04,
 )
-kin_temp(H_atom::Union{H_atom_2d,H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
+kin_temp(H_atom::Union{H_atom_2d, H_atom_3d}) = (H_atom.vel[1]^2 + H_atom.vel[2]^2)^0.5
 kin_temp(H_atom::Clump) = 0
-model = initialize_model(number_of_atoms=1000)
+kin_temp(H_atom::Union{Photon_2d, Photon_3d}) = 0
+model = initialize_model(number_of_atoms=10000, number_of_photons=10000)
 adata = [(kin_temp, mean)]
 number_of_clumps=1
-velocities_norms(model) = [model[i].vel[1] for i in number_of_clumps+1:nagents(model)]
-mdata = [velocities_norms]
+velocities_norms(model) = [model[i].vel[1] for i in number_of_clumps+1:number_of_clumps+model.full_number_of_atoms]
+photon_velocities(model) = [model[i].vel[1] for i in number_of_clumps+model.full_number_of_atoms +1:nagents(model)]
+
+mdata = [velocities_norms, photon_velocities]
 fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata, figure = (; size = (1200,600)))
 plot_layout = fig[:,end+1] = GridLayout()
 count_layout = plot_layout[1, 1] = GridLayout()
@@ -223,7 +256,8 @@ ax_counts = Axis(count_layout[1, 1]; backgroundcolor=:lightgrey, ylabel="Number 
 temperature = @lift(Point2f.($(abmobs.adf).time, $(abmobs.adf).mean_kin_temp))
 scatterlines!(ax_counts, temperature; color=:black, label="black")
 ax_hist = Axis(plot_layout[2, 1]; ylabel="super")
-hist!(ax_hist, @lift($(abmobs.mdf)[end, 2]); bins=50, normalization=:pdf, color=(:red, 0.5))
+hist!(ax_hist, @lift($(abmobs.mdf)[end, 2]); bins=50, normalization=:pdf, color=(:blue, 0.5))
+hist!(ax_hist, @lift($(abmobs.mdf)[end, 3]); bins=50, normalization=:pdf, color=(:green, 0.5))
 # xmin = mean(abmobs.mdf[][1, 2]) - 5*mean(abmobs.mdf[][1, 2])
 # xmax = mean(abmobs.mdf[][1, 2]) + 5 * mean(abmobs.mdf[][1, 2])
 # xlims!(ax_hist, (xmin, xmax))
@@ -233,8 +267,9 @@ hist!(ax_hist, @lift($(abmobs.mdf)[end, 2]); bins=50, normalization=:pdf, color=
 for i in 1:10; step!(abmobs, 1); end
 fig
 
-# c = abmobs.mdf[][1,2]
+# @allocated(abmobs.mdf[][:,:])
 
+# model
 # mean(c)
 # std(c)
 # abmobs.mdf[][:,2]
