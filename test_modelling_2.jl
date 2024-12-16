@@ -22,13 +22,15 @@ end
 
 @agent struct Photon_2d(ContinuousAgent{2,Float64})
     polarization::Float64 # just for fun with no physical sence
+    momentum::Float64
 end
+
 @agent struct Photon_3d(ContinuousAgent{3,Float64})
     polarization::Float64 # just for fun with no physical sence
 end
 
 
-function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42, number_of_photons=100)
+function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(ones(number_of_dimensions)), number_of_clumps=1, seed = 42, number_of_photons=100, mass=1, c=1)
     space = ContinuousSpace(extent; periodic=true)  
     rng = Random.MersenneTwister(seed)
     if number_of_dimensions == 2 
@@ -43,6 +45,8 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
                       :number_of_clumps => number_of_clumps,
                       :full_number_of_atoms => number_of_atoms * number_of_clumps,
                       :number_of_photons => number_of_photons,
+                      :mass => mass,
+                      :speed_of_light => c
     )
 
     model = StandardABM(Union{H_atom, Clump, Photon}, space; rng, agent_step!, model_step!, scheduler=Schedulers.ByID(), properties = properties)
@@ -178,26 +182,42 @@ function model_step!(model; number_of_collisions=100)
         last_atom_index = model.number_of_clumps + k * number_of_atoms_per_clump
         for _ in 1:number_of_collisions
             i, j = rand(first_atom_index:last_atom_index, 2)
-            if typeof(model[i]) == Photon_2d || typeof(model[j]) == Photon_2d
-                println(i)
-            end
-            new_vel_1, new_vel_2 = collision(model[i].vel, model[j].vel)
-            model[i].vel = new_vel_1
-            model[j].vel = new_vel_2
+            collision(model[i], model[j])
         end
     end
 end
 
-function collision(velocity_1, velocity_2)
+function collision(H1::H_atom_2d, H2::H_atom_2d)
     # simple collision which agree with energy and momentum conservation laws.
+    velocity_1, velocity_2 = H1.vel, H2.vel
+
     center = 0.5 * (velocity_1 + velocity_2)
     radius = 0.5 * norm(velocity_1 - velocity_2)
     α = 2π * rand()
     direction = [cos(α); sin(α)]
     new_vel_1 = center + radius * direction
     new_vel_2 = center - radius * direction
+    H1.vel, H2.vel = new_vel_1, new_vel_2
+    return 0
+end
+
+function collision(γ::Photon_2d, H::H_atom_2d, model)
+    # simple collision which agree with energy and momentum conservation laws.
+    m = model.mass
+    c = model.speed_of_light
+    mc = m*c
+    p_new(α, p_old) = p_old * cos(α) - mc + (mc^2 - p_old^2 * sin(α)^2 + 2mc * p_old * (1 - cos(α)))^0.5
+
+    α = 2π * rand()
+    direction = [cos(α); sin(α)]
+    γ.momentum = p_new(α, γ.momentum)
+
+    # need to add lorentz boost concerning H_atom velocity
+
+    γ.vel = γ.vel .* direction
     return new_vel_1, new_vel_2
 end
+
 
 function agent_color(agent::Union{H_atom_2d, H_atom_3d})
     return :blue
@@ -311,9 +331,10 @@ function plot_density_for_all_clumps(model)
     return fig, ax, abmobs
 end
 
-model = initialize_model(number_of_atoms=100, number_of_clumps=100, number_of_photons=1000)
+model = initialize_model(number_of_atoms=100, number_of_clumps=4, number_of_photons=1000)
 fig, ax, abmobs = plot_density_for_all_clumps(model)
 fig
+
 
 # step!(model)
 # fig
