@@ -21,7 +21,7 @@ end
 end
 
 @agent struct Photon_2d(ContinuousAgent{2,Float64})
-    polarization::Float64 # just for fun with no physical sence
+    # polarization::Float64 # just for fun with no physical sence
     momentum::Float64
 end
 
@@ -93,14 +93,15 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         α = 2π * rand()
         direction = [cos(α); sin(α)]
         vel = 0.5speed .* direction 
-        replicate!(base_photon, model; pos=pos, vel=vel)
+        momentum = rand()
+        replicate!(base_photon, model; pos=pos, vel=vel, momentum=momentum)
     end
 
     return model
 end
 
 function dist(agent_1, agent_2, model)
-    spacesize(model)[1]
+    # spacesize(model)[1]
     dist_1 = min(abs(agent_1.pos[1] - agent_2.pos[1]),
         abs(spacesize(model)[1] + agent_1.pos[1] - agent_2.pos[1]),
         abs(-spacesize(model)[1] + agent_1.pos[1] - agent_2.pos[1]))
@@ -164,7 +165,7 @@ function agent_step!(photon_agent::Photon_2d, model)
     move_agent!(photon_agent, model, 1)
 end
 
-function model_step!(model; number_of_collisions=100)
+function model_step!(model; number_of_collisions=100, number_of_photon_collisions=4)
     # if abmtime(model) % 2 == 0
     #     number_of_atoms_per_clump = length(model[1].child_agents)
     #     i, j = rand(2:number_of_atoms_per_clump, 2)
@@ -172,7 +173,12 @@ function model_step!(model; number_of_collisions=100)
     #     model[i].vel = new_vel_1
     #     model[j].vel = new_vel_2
     # end
-    number_of_atoms_per_clump = length(model[1].child_agents)
+    if typeof(model[1]) == "Clump"
+        number_of_atoms_per_clump = length(model[1].child_agents)
+    else
+        number_of_atoms_per_clump = 0
+    end
+
     number_of_collisions = max(round(Int, (number_of_atoms_per_clump / 100)), 1)
     # if number_of_collisions < 1
     #     number_of_steps_per_collision = round(Int, 1/number_of_collisions)
@@ -185,6 +191,16 @@ function model_step!(model; number_of_collisions=100)
             collision(model[i], model[j])
         end
     end
+
+    # only for photons
+    last_atom_index = model.number_of_clumps + model.number_of_clumps * number_of_atoms_per_clump
+
+    for _ in 1:number_of_photon_collisions
+        i, j = rand(last_atom_index + 1:nagents(model), 2)
+        collision(model[i], model[j])
+    end
+
+
 end
 
 function collision(H1::H_atom_2d, H2::H_atom_2d)
@@ -216,6 +232,30 @@ function collision(γ::Photon_2d, H::H_atom_2d, model)
 
     γ.vel = γ.vel .* direction
     return new_vel_1, new_vel_2
+end
+
+function collision(γ1::Photon_2d, γ2::Photon_2d)
+    # simple collision that agrees with energy and momentum conservation laws.
+    p1 = γ1.vel ./ norm(γ1.vel) .* γ1.momentum
+    p2 = γ2.vel ./ norm(γ2.vel) .* γ2.momentum
+    ϵ = (norm(p1 + p2)) / (norm(p1) + norm(p2))
+    a = 0.5 * (norm(p1) + norm(p2))
+
+    α = 2π * rand()
+    β = acos((p1+p2)[1] / norm(p1 + p2))
+    if (p1+p2)[2] < 0
+        β *= -1
+    end
+    # direction = [cos(α - β); sin(α - β)]
+
+    γ1.momentum = a * (ϵ^2 - 1) / (ϵ * cos(α) - 1)
+    γ2.momentum = norm(p1) + norm(p2) - γ1.momentum
+    γ1.vel = [cos(α + β); sin(α + β)] .* norm(γ1.vel)
+
+    γ2_vec_momentum = p1 + p2 - γ1.vel .* γ1.momentum ./ norm(γ1.vel)
+    γ2.vel = γ2_vec_momentum ./ norm(γ2_vec_momentum) .* norm(γ2.vel)
+
+    return γ1, γ2
 end
 
 
@@ -310,7 +350,11 @@ function plot_density_for_all_clumps(model)
     kin_temp(H_atom::Union{Photon_2d,Photon_3d}) = 0
     adata = [(kin_temp, mean)]
     number_of_clumps = model.number_of_clumps
-    number_of_atoms_per_clump = Int(model.full_number_of_atoms / model.number_of_clumps)
+    if number_of_clumps != 0
+        number_of_atoms_per_clump = Int(model.full_number_of_atoms / model.number_of_clumps)
+    else
+        number_of_atoms_per_clump = 0
+    end
     atoms_momentum_x(model) = [[model[i].vel[1] for i in model.number_of_clumps + (k-1)*number_of_atoms_per_clump + 1:model.number_of_clumps + k * number_of_atoms_per_clump] for k in 1:number_of_clumps]
     atoms_momentum(model) = [norm(model[i].vel) for i in number_of_clumps+1:number_of_clumps+model.full_number_of_atoms]
     photons_momentum(model) = [model[i].vel[1] for i in number_of_clumps+model.full_number_of_atoms+1:nagents(model)]
@@ -331,10 +375,43 @@ function plot_density_for_all_clumps(model)
     return fig, ax, abmobs
 end
 
-model = initialize_model(number_of_atoms=100, number_of_clumps=4, number_of_photons=1000)
-fig, ax, abmobs = plot_density_for_all_clumps(model)
+function plot_density_for_photons(model)
+    plotkwargs = (;
+        agent_color=agent_color, agent_size=4,
+    )
+    params = Dict(
+        :speed => 0.02:0.001:0.04,
+    )
+
+    photons_momentum(model) = [model[i].momentum for i in 1:nagents(model)]
+
+    adata = []
+    mdata = [photons_momentum]
+    fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata, figure=(; size=(1200, 600)))
+    plot_layout = fig[:, end+1] = GridLayout()
+    count_layout = plot_layout[1, 1] = GridLayout()
+
+    ax_1 = Axis(plot_layout[1, 1]; ylabel="not super")
+    ax_hist = Axis(plot_layout[2, 1]; ylabel="super")
+    # hist!(ax_hist, @lift($(abmobs.mdf)[end, 2]); bins=50, normalization=:pdf, color=(:blue, 0.5))
+    
+    density!(ax_hist, @lift($(abmobs.mdf)[end, 2]), color=(:blue, 0.5), strokewidth=3)
+    
+    return fig, ax, abmobs
+end
+
+model = initialize_model(number_of_atoms=0, number_of_photons=10000, number_of_clumps=0)
+# fig, ax, abmobs = plot_density_for_all_clumps(model)
+fig, ax, abmobs = plot_density_for_photons(model)
 fig
 
+using PyPlot
+pygui(true)
+PyPlot.hist(log10.((abmobs.mdf[][612, 2]) .+ 0.0000000001), bins=100)
+
+
+1
+# agent_step!(model[1], model)
 
 # step!(model)
 # fig
