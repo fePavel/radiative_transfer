@@ -240,6 +240,7 @@ function collision(γ1::Photon_2d, γ2::Photon_2d)
     p2 = γ2.vel ./ norm(γ2.vel) .* γ2.momentum
     ϵ = (norm(p1 + p2)) / (norm(p1) + norm(p2))
     a = 0.5 * (norm(p1) + norm(p2))
+    b = a*(1 - ϵ^2)^0.5 
 
     α = 2π * rand()
     β = acos((p1+p2)[1] / norm(p1 + p2))
@@ -248,11 +249,13 @@ function collision(γ1::Photon_2d, γ2::Photon_2d)
     end
     # direction = [cos(α - β); sin(α - β)]
 
-    γ1.momentum = a * (ϵ^2 - 1) / (ϵ * cos(α) - 1)
-    γ2.momentum = norm(p1) + norm(p2) - γ1.momentum
-    γ1.vel = [cos(α + β); sin(α + β)] .* norm(γ1.vel)
+    # γ1.momentum = a * (ϵ^2 - 1) / (ϵ * cos(α) - 1)
+    p1_new = b / (1 - ϵ^2 * cos(α)^2)^0.5 .* [cos(α); sin(α)] + 0.5 .* (p1 + p2) 
+    γ1.momentum = norm(p1_new)
+    γ2.momentum = 2a - γ1.momentum
+    γ1.vel = p1_new ./ norm(p1_new) .* norm(γ1.vel)
 
-    γ2_vec_momentum = p1 + p2 - γ1.vel .* γ1.momentum ./ norm(γ1.vel)
+    γ2_vec_momentum = p1 + p2 - p1_new
     γ2.vel = γ2_vec_momentum ./ norm(γ2_vec_momentum) .* norm(γ2.vel)
 
     return γ1, γ2
@@ -405,12 +408,13 @@ model = initialize_model(number_of_atoms=0, number_of_photons=10000, number_of_c
 fig, ax, abmobs = plot_density_for_photons(model)
 fig
 
-using PyPlot
-pygui(true)
-PyPlot.hist(log10.((abmobs.mdf[][612, 2]) .+ 0.0000000001), bins=100)
+# using PyPlot
+# pygui(true)
+# abmobs.mdf[]
+# PyPlot.hist(log10.((abmobs.mdf[][696, 2])), bins=100)
 
 
-1
+# 1
 # agent_step!(model[1], model)
 
 # step!(model)
