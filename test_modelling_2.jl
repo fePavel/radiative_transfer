@@ -1,9 +1,11 @@
 using Agents
 using Random, LinearAlgebra, Statistics
+# using Distributions
 # using CairoMakie
 using GLMakie
 
 number_of_dimensions = 2
+const h = 6.62607015e-34
 
 @agent struct H_atom_3d(ContinuousAgent{3, Float64}) 
     speed::Float64
@@ -14,7 +16,7 @@ end
     speed::Float64
     clump_id::Int
 end
-
+	
 @agent struct Clump(ContinuousAgent{2,Float64})
     cell_size::Float64
     child_agents::Array{Union{H_atom_2d, H_atom_3d},1}
@@ -41,19 +43,24 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         Photon = Photon_3d
     end
 
+    λ_Ly_α = 1215.67
+
     properties = Dict(:n => round(Int, number_of_clumps^(1 / number_of_dimensions)),
                       :number_of_clumps => number_of_clumps,
                       :full_number_of_atoms => number_of_atoms * number_of_clumps,
                       :number_of_photons => number_of_photons,
-                      :mass => mass,
+                    #   :mass => mass,
+                      :mass => 0.1 * h / λ_Ly_α / speed,
                       :speed_of_light => c,
+                      :speed => speed,
                       :atom_indexes => number_of_clumps+1:number_of_clumps+number_of_atoms*number_of_clumps,
                       :clump_indexes => 1:number_of_clumps,
                       :photon_indexes => number_of_clumps+number_of_atoms*number_of_clumps+1:number_of_clumps+number_of_atoms*number_of_clumps + number_of_photons
     )
 
     model = StandardABM(Union{H_atom, Clump, Photon}, space; rng, agent_step!, model_step!, scheduler=Schedulers.ByID(), properties = properties)
-    n=round(Int, number_of_clumps^(1/number_of_dimensions))
+    # model = StandardABM(Union{H_atom,Clump,Photon}, space; rng, model_step!, scheduler=Schedulers.ByID(), properties=properties)
+    n = round(Int, number_of_clumps^(1 / number_of_dimensions))
     
     clump_space = 2 # 2 --> no empty space
     
@@ -63,8 +70,8 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         for j in 1:2n+1
             if i % 2 ==0 && j % 2 == 0 
                 clump_pos = [(i - 0.5), (j - 0.5)] .* cell_size
-                # vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
-                vel = [0, 0]
+                vel = 1 .* randn(rng, Float64, (number_of_dimensions, 1)) .* 0.001
+                # vel = [0, 0]
                 replicate!(base_clump, model; pos=clump_pos, vel=vel, child_agents=Int[])
             end
         end
@@ -98,8 +105,8 @@ function initialize_model(; number_of_atoms=100, speed = 0.03, extent = Tuple(on
         pos = (rand(rng, Float64, (number_of_dimensions, 1)) .- (0.5, 0.5)) .* cell_size .+ (0.5, 0.5)
         α = 2π * rand()
         direction = [cos(α); sin(α)]
-        vel = 0.5speed .* direction 
-        momentum = rand()
+        vel = 2speed .* direction 
+        momentum =  (1 + 0.01 * randn()) # * h / λ_Ly_α
         replicate!(base_photon, model; pos=pos, vel=vel, momentum=momentum)
     end
 
@@ -168,10 +175,10 @@ function agent_step!(clump_agent::Clump, model)
 end
 
 function agent_step!(photon_agent::Photon_2d, model)
-    move_agent!(photon_agent, model, 1)
+    move_agent!(photon_agent, model, 3*model.speed)
 end
 
-function model_step!(model; number_of_collisions=0, number_of_photon_collisions=100)
+function model_step!(model; number_of_collisions=10, number_of_photon_collisions=10)
     # if abmtime(model) % 2 == 0
     #     number_of_atoms_per_clump = length(model[1].child_agents)
     #     i, j = rand(2:number_of_atoms_per_clump, 2)
@@ -209,11 +216,12 @@ function model_step!(model; number_of_collisions=0, number_of_photon_collisions=
     # only for photons
     if model.number_of_photons > 0
         for _ in 1:number_of_photon_collisions
-            i, j = rand(model.photon_indexes, 2)
-            collision(model[i], model[j])
+#            i, j = rand(model.photon_indexes, 1), rand(model.atom_indexes, 1) 
+            i, j = rand(model.photon_indexes, 1)[1], rand(model.photon_indexes, 1)[1] 
+            # println(i, j)
+            collision(model[i], model[j], model)
         end
     end
-
 end
 
 function collision(H1::H_atom_2d, H2::H_atom_2d)
@@ -230,24 +238,72 @@ function collision(H1::H_atom_2d, H2::H_atom_2d)
     return 0
 end
 
+
+
+
+
+function generate_lyman_alpha_photon(v_source; Γ=6.265e8, λ0=121.567e-9)
+    c = 299792458.0
+    c = 0.03 * 100
+
+    # 1. Генерация длины волны в системе источника (Лоренц)
+    ω0 = 2π * c / λ0
+    ω = ω0 + Γ / 2 * tan(π * (rand() - 0.5))
+    λ_emit = 2π * c / ω
+
+    # 2. Случайное направление излучения в 2D (в системе источника)
+    ϕ = 2π * rand()
+    n_emit = [cos(ϕ), sin(ϕ)]
+
+    # 3. Переход в лабораторную систему отсчёта (учёт скорости v_source)
+    v = norm(v_source)
+    # if v ≈ 0.0
+    #     return (λ=λ_emit, direction=n_emit)
+    # end
+
+    β = v / c
+    γ = 1 / sqrt(1 - β^2)
+    v_hat = v_source / v
+
+    # Релятивистский эффект Доплера
+    doppler_factor = γ * (1 + dot(v_hat, n_emit) * β)
+    λ_lab = λ_emit * doppler_factor
+    println(doppler_factor, β)
+
+    # Аберрация света (преобразование направления)
+    n_lab = (n_emit + (γ - 1) * dot(v_hat, n_emit) * v_hat + γ * β * v_hat) / (γ * (1 + dot(v_hat, n_emit) * β))
+    n_lab = normalize(n_lab)  # Нормировка на случай численных погрешностей
+
+    return λ_lab, n_lab
+end
+
+# # Пример
+# v_source = [0.1c, 0.2c] 
+# photon = generate_lyman_alpha_photon(v_source)
+# println("λ (lab): ", photon.λ, " м")
+# println("Направление (lab): ", photon.direction)
+
+
 function collision(γ::Photon_2d, H::H_atom_2d, model)
     # simple collision which agree with energy and momentum conservation laws.
     m = model.mass
-    c = model.speed_of_light
-    mc = m*c
-    p_new(α, p_old) = p_old * cos(α) - mc + (mc^2 - p_old^2 * sin(α)^2 + 2mc * p_old * (1 - cos(α)))^0.5
+    # c = model.speed_of_light
 
-    α = 2π * rand()
-    direction = [cos(α); sin(α)]
-    γ.momentum = p_new(α, γ.momentum)
+    γ_direction = γ.vel ./ norm(γ.vel)
+    γ_p = γ.momentum .* γ_direction
+    vel = γ_p ./ m .+ H.vel
 
-    # need to add lorentz boost concerning H_atom velocity
+    new_λ, new_direction = generate_lyman_alpha_photon(vel)
+    # h = 6.62607015e-34
+    new_momentum = h / new_λ
+    γ.momentum = new_momentum
+    γ.vel = model.speed_of_light .* new_direction
 
-    γ.vel = γ.vel .* direction
-    return new_vel_1, new_vel_2
+    H.vel = vel .- new_momentum .* new_direction ./ m    
+    return γ, H
 end
 
-function collision(γ1::Photon_2d, γ2::Photon_2d)
+function collision(γ1::Photon_2d, γ2::Photon_2d, model)
     # simple collision that agrees with energy and momentum conservation laws.
     p1 = γ1.vel ./ norm(γ1.vel) .* γ1.momentum
     p2 = γ2.vel ./ norm(γ2.vel) .* γ2.momentum
@@ -379,15 +435,21 @@ function plot_density_for_all_clumps(model)
     photons_momentum(model) = [model[i].momentum for i in model.photon_indexes]
 
     mdata = [atoms_momentum_x, atoms_momentum_x_all, photons_momentum]
-    fig, ax, abmobs = abmplot(model; params, plotkwargs..., adata, mdata, figure=(; size=(1200, 600)))
+
+    model_obs = Observable(model)
+
+    fig, ax, abmobs = abmplot(model_obs[]; params, plotkwargs..., adata, mdata, figure=(; size=(1200, 600)))
     plot_layout = fig[:, end+1] = GridLayout()
     count_layout = plot_layout[1, 1] = GridLayout()
 
+    ### temperature evolution ###
     ax_counts = Axis(count_layout[1, 1]; backgroundcolor=:lightgrey, ylabel="temperature")
     temperature = @lift(Point2f.($(abmobs.adf).time, $(abmobs.adf).mean_kin_temp))
     scatterlines!(ax_counts, temperature; color=:black, label="black")
+    autolimits!(ax_counts)
     # xlims!(ax_counts, 0, @lift($(abmobs.adf)[end, 2])[])
     # xlims!(ax_counts, 0, 100)
+    #############################
 
     ### velocity kde for all clumps ###
     ax_hist = Axis(plot_layout[2, 1]; ylabel="velocity kde")
@@ -397,10 +459,12 @@ function plot_density_for_all_clumps(model)
     ###################################
 
     ### velocity kde for all atoms ###
-    ax_hist_2 = Axis(plot_layout[2, 2]; ylabel="velocity kde")
-    density!(ax_hist_2, @lift($(abmobs.mdf)[end, 3]), color=(:blue, 0.5), strokewidth=2)
-    linkyaxes!(ax_hist, ax_hist_2)
-    linkxaxes!(ax_hist, ax_hist_2)
+    if number_of_atoms_per_clump > 0
+        ax_hist_2 = Axis(plot_layout[2, 2]; ylabel="velocity kde")
+        density!(ax_hist_2, @lift($(abmobs.mdf)[end, 3]), color=(:blue, 0.5), strokewidth=2)
+        linkyaxes!(ax_hist, ax_hist_2)
+        linkxaxes!(ax_hist, ax_hist_2)
+    end
     ##################################
 
     ### momentum kde for photons ###
@@ -408,10 +472,15 @@ function plot_density_for_all_clumps(model)
         ax_hist_3 = Axis(plot_layout[1, 2]; ylabel="momentum kde")
         density!(ax_hist_3, @lift($(abmobs.mdf)[end, 4]), color=(:green, 0.5), strokewidth=2)
     end
-    ##################################
+    ################################
+
+    on(abmobs.model) do m
+        autolimits!(ax_counts)
+        autolimits!(ax_hist_3)
+    end
 
 
-    return fig, ax, abmobs
+    return fig, ax, abmobs, model_obs
 end
 
 function plot_density_for_photons(model)
@@ -441,9 +510,30 @@ end
 
 model = initialize_model(number_of_atoms=100, number_of_photons=10000, number_of_clumps=100)
 # fig, ax, abmobs = plot_density_for_photons(model)
-fig, ax, abmobs = plot_density_for_all_clumps(model)
-fig
+fig, ax, abmobs, model_obs = plot_density_for_all_clumps(model)
 
+
+record(fig, "example.mp4"; framerate=5) do io
+    for j in 1:200
+        recordframe!(io)
+        if j < 50
+            Agents.step!(abmobs, 1)
+        elseif j < 60
+            Agents.step!(abmobs, j-49)
+        else
+            Agents.step!(abmobs, 10)
+        end
+    
+    end
+    recordframe!(io)
+end
+
+# abmobs
+# collision(model[1001], model[1002], model)
+# step!(model)
+# model[994]
+
+# 1
 # abmobs.adf[][end,2]
 
 # 1
