@@ -513,15 +513,15 @@ model = initialize_model(number_of_atoms=100, number_of_photons=10000, number_of
 fig, ax, abmobs, model_obs = plot_density_for_all_clumps(model)
 
 
-record(fig, "example.mp4"; framerate=5) do io
-    for j in 1:200
+record(fig, "example.gif"; framerate=5) do io
+    for j in 1:50
         recordframe!(io)
-        if j < 50
-            Agents.step!(abmobs, 1)
-        elseif j < 60
-            Agents.step!(abmobs, j-49)
+        if j < 50 /4
+            Agents.step!(abmobs, 4)
+        elseif j < 60 / 4
+            Agents.step!(abmobs, 4*(j - 49 / 4))
         else
-            Agents.step!(abmobs, 10)
+            Agents.step!(abmobs, 4*10)
         end
     
     end
